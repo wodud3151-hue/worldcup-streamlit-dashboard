@@ -12,7 +12,7 @@ streamlit run app.py
 ## 배포
 
 1. GitHub에 새 저장소를 만듭니다.
-2. 이 폴더의 `app.py`, `requirements.txt`, `data/pool.json`을 업로드합니다.
+2. 이 폴더의 `app.py`, `requirements.txt`, `pool.json`을 업로드합니다.
 3. https://share.streamlit.io 또는 Streamlit Community Cloud에 접속합니다.
 4. `Create app`을 누르고 GitHub 저장소, 브랜치, `app.py`를 선택합니다.
 5. Deploy 후 생성된 URL을 친구들에게 공유합니다.

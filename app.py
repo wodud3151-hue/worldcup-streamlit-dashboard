@@ -7,7 +7,8 @@ import requests
 import streamlit as st
 
 
-DATA_PATH = Path("data/pool.json")
+DATA_PATH = Path("pool.json")
+LEGACY_DATA_PATH = Path("data/pool.json")
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
 
 ROUNDS = [
@@ -44,8 +45,10 @@ def split_teams(text: str) -> list[str]:
 
 
 def load_pool() -> dict:
+    if not DATA_PATH.exists() and LEGACY_DATA_PATH.exists():
+        return json.loads(LEGACY_DATA_PATH.read_text(encoding="utf-8"))
+
     if not DATA_PATH.exists():
-        DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
         DATA_PATH.write_text(
             json.dumps(
                 {
