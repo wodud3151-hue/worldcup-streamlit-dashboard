@@ -201,7 +201,30 @@ def round_winners(pool: dict, round_id: str) -> tuple[list[str], int]:
     top_score = max([score for _, score in scores], default=0)
     if top_score == 0:
         return [], 0
-    return [name for name, score in scores if score == top_score], top_score
+    tied_names = [name for name, score in scores if score == top_score]
+
+    if round_id == "qf" and len(tied_names) > 1:
+        total_goals = pool.get("result_total_goals", {}).get("qf")
+        if total_goals not in [None, ""]:
+            participants_by_name = {participant["name"]: participant for participant in pool.get("participants", [])}
+            distances = []
+            for name in tied_names:
+                predicted_goals = int(participants_by_name[name].get("tiebreaker_goals") or 0)
+                distances.append((name, abs(predicted_goals - int(total_goals))))
+            best_distance = min(distance for _, distance in distances)
+            tied_names = [name for name, distance in distances if distance == best_distance]
+
+    return tied_names, top_score
+
+
+def winner_reason(pool: dict, round_id: str, top_score: int) -> str:
+    if round_id != "qf":
+        return f"{top_score}개 적중"
+
+    total_goals = pool.get("result_total_goals", {}).get("qf")
+    if total_goals in [None, ""]:
+        return f"{top_score}개 적중 · 총 골수 결과 대기"
+    return f"{top_score}개 적중 · 총 골수 {total_goals} 기준"
 
 
 def match_round_id(event: dict) -> str | None:
@@ -374,7 +397,7 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
     st.subheader(round_def["label"])
     if winners:
         st.markdown(
-            f'<div class="winner-box">{round_def["label"]} 승자: {", ".join(winners)} · {top_score}개 적중</div>',
+            f'<div class="winner-box">{round_def["label"]} 승자: {", ".join(winners)} · {winner_reason(pool, round_id, top_score)}</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -388,6 +411,8 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
         f"<td>{participant.get('tiebreaker_goals', '') if round_id == 'qf' else ''}</td>"
         for participant in participants
     )
+    qf_total_goals = pool.get("result_total_goals", {}).get("qf")
+    qf_total_goals_display = qf_total_goals if qf_total_goals not in [None, ""] else "대기"
     header_cells = "".join(
         f"<th>{participant['name']}{' 🏆' if participant['name'] in winners else ''}</th>"
         for participant in participants
@@ -398,6 +423,7 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
       <tr><th>구분</th>{header_cells}</tr>
       <tr><td>적중 수</td>{score_cells}</tr>
       {"<tr><td>총 골수</td>" + goal_cells + "</tr>" if round_id == "qf" else ""}
+      {"<tr><td>총 골수 결과</td><td colspan='" + str(len(participants)) + "'><b>" + str(qf_total_goals_display) + "</b></td></tr>" if round_id == "qf" else ""}
     </table>
     <table class="prediction-table">
       <tr>
@@ -420,7 +446,7 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
 
 
 def render_bottom_stats(pool: dict) -> None:
-    st.subheader("누적 승리/적중 현황")
+    st.subheader("누적 라운드 승리")
     participants = pool.get("participants", [])
     past_wins = pool.get("past_wins", {})
     round_win_counts = {participant["name"]: int(past_wins.get(participant["name"], 0)) for participant in participants}
@@ -435,9 +461,8 @@ def render_bottom_stats(pool: dict) -> None:
         rows.append(
             {
                 "이름": participant["name"],
-                "16강 적중": participant_score(pool, participant, "r16"),
-                "8강 적중": participant_score(pool, participant, "qf"),
-                "라운드 승리": round_win_counts.get(participant["name"], 0),
+                "누적승": round_win_counts.get(participant["name"], 0),
+                "비고": "32강 우승 이력 포함" if participant["name"] in past_wins else "",
             }
         )
 
@@ -446,7 +471,7 @@ def render_bottom_stats(pool: dict) -> None:
 
     df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True, hide_index=True)
-    st.bar_chart(df.set_index("이름")[["16강 적중", "8강 적중", "라운드 승리"]])
+    st.bar_chart(df.set_index("이름")[["누적승"]])
 
 
 def render_champion(pool: dict) -> None:
@@ -493,6 +518,14 @@ def render_admin(pool: dict) -> bool:
                 key=f"result-{round_id}",
             )
             pool.setdefault("results", {})[round_id] = split_teams(value)
+
+        pool.setdefault("result_total_goals", {})
+        total_goal_input = st.text_input(
+            "8강전 4경기 총 골수 결과",
+            value=str(pool.get("result_total_goals", {}).get("qf") or ""),
+            help="8강 4경기에서 나온 모든 골의 합계입니다. 8강 적중 수 동점일 때 이 값과 가장 가까운 사람이 승자입니다.",
+        )
+        pool["result_total_goals"]["qf"] = int(total_goal_input) if total_goal_input.strip().isdigit() else ""
 
         if st.button("실제 결과 저장", use_container_width=True):
             save_pool(pool)

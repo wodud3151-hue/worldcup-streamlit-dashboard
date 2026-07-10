@@ -87,5 +87,8 @@
     "qf": ["프랑스"],
     "champion": []
   },
+  "result_total_goals": {
+    "qf": ""
+  },
   "history": []
 }
