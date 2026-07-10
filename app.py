@@ -30,22 +30,22 @@ CUSTOM_CSS = """
 .block-container { padding-top: 1.5rem; }
 .match-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin: 8px 0 18px;
+  margin: 6px 0 12px;
 }
 .match-card {
   border: 1px solid #d7dee8;
   border-radius: 8px;
   background: #fff;
-  min-height: 112px;
-  padding: 10px 12px;
+  min-height: 82px;
+  padding: 8px 10px;
 }
 .match-card.live { border-color: #f3c363; background: #fff8e8; }
 .match-card.result { border-color: #a9e3c4; background: #f0fbf5; }
 .match-kicker { color: #667085; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
-.match-title { font-size: 17px; font-weight: 900; margin-bottom: 4px; }
-.match-note { color: #667085; font-size: 13px; }
+.match-title { font-size: 16px; font-weight: 900; margin-bottom: 3px; }
+.match-note { color: #667085; font-size: 12px; }
 .winner-box {
   border: 1px solid #a9e3c4;
   background: #f0fbf5;
@@ -59,16 +59,16 @@ CUSTOM_CSS = """
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 14px;
-  margin-bottom: 18px;
+  font-size: 13px;
+  margin-bottom: 12px;
 }
 .prediction-table th,
 .prediction-table td {
   border: 1px solid #d7dee8;
   text-align: center;
   vertical-align: middle;
-  padding: 7px 6px;
-  line-height: 1.25;
+  padding: 6px 4px;
+  line-height: 1.18;
   word-break: keep-all;
 }
 .prediction-table th {
@@ -79,13 +79,13 @@ CUSTOM_CSS = """
 .prediction-table .game-cell {
   background: #f8fafc;
   font-weight: 900;
-  width: 76px;
+  width: 46px;
 }
 .prediction-table .actual-cell {
   background: #eef6ff;
   color: #24527a;
   font-weight: 900;
-  width: 90px;
+  width: 58px;
 }
 .prediction-table .hit {
   background: #dff6ea;
@@ -104,8 +104,8 @@ CUSTOM_CSS = """
 .score-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
-  margin-bottom: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
 }
 .score-table th,
 .score-table td {
@@ -116,9 +116,14 @@ CUSTOM_CSS = """
 .score-table th { background: #f3f6f9; }
 @media (max-width: 900px) {
   .match-strip { grid-template-columns: 1fr; }
-  .prediction-table { font-size: 12px; }
+  .prediction-table { font-size: 11px; }
   .prediction-table th,
-  .prediction-table td { padding: 6px 4px; }
+  .prediction-table td { padding: 5px 2px; }
+  .prediction-table .game-cell { width: 34px; }
+  .prediction-table .actual-cell { width: 44px; }
+  .score-table { font-size: 11px; }
+  h1 { font-size: 1.75rem !important; }
+  h2, h3 { margin-top: 0.35rem !important; }
 }
 </style>
 """
@@ -351,12 +356,10 @@ def render_match_card(kind: str, title: str, summary: str, detail: str = "") -> 
 
 def render_match_overview(pool: dict) -> None:
     matches, error = fetch_live_matches()
-    live_matches = []
     completed_matches = []
     upcoming_matches = []
 
     if not error:
-        live_matches = [match for match in matches if is_live_match(match)]
         completed_matches = sorted(
             [match for match in matches if match.get("completed")],
             key=sort_key,
@@ -371,7 +374,7 @@ def render_match_overview(pool: dict) -> None:
     recent = featured.get("recent", {})
     next_match = featured.get("next", {})
 
-    cols = st.columns(3)
+    cols = st.columns(2)
     with cols[0]:
         render_match_card(
             "result",
@@ -380,13 +383,6 @@ def render_match_overview(pool: dict) -> None:
             completed_matches[0].get("status", "") if completed_matches else recent.get("detail", "득점: 음바페, 뎀벨레"),
         )
     with cols[1]:
-        render_match_card(
-            "live",
-            "현재 하고있는 매치",
-            match_summary(live_matches[0]) if live_matches else "진행 중인 경기 없음",
-            live_matches[0].get("status", "8강전 진행 상황은 자동 갱신됩니다.") if live_matches else "8강전 진행 상황은 자동 갱신됩니다.",
-        )
-    with cols[2]:
         render_match_card(
             "",
             "다음 예정 경기",
