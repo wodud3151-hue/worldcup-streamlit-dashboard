@@ -38,12 +38,13 @@ CUSTOM_CSS = """
   border: 1px solid #d7dee8;
   border-radius: 8px;
   background: #fff;
-  padding: 12px 14px;
+  min-height: 112px;
+  padding: 10px 12px;
 }
 .match-card.live { border-color: #f3c363; background: #fff8e8; }
 .match-card.result { border-color: #a9e3c4; background: #f0fbf5; }
 .match-kicker { color: #667085; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
-.match-title { font-size: 18px; font-weight: 900; margin-bottom: 4px; }
+.match-title { font-size: 17px; font-weight: 900; margin-bottom: 4px; }
 .match-note { color: #667085; font-size: 13px; }
 .winner-box {
   border: 1px solid #a9e3c4;
@@ -309,6 +310,10 @@ def render_match_block(kind: str, title: str, summary: str, detail: str = "") ->
     """
 
 
+def render_match_card(kind: str, title: str, summary: str, detail: str = "") -> None:
+    st.markdown(render_match_block(kind, title, summary, detail), unsafe_allow_html=True)
+
+
 def render_match_overview(pool: dict) -> None:
     matches, error = fetch_live_matches()
     live_matches = []
@@ -331,26 +336,28 @@ def render_match_overview(pool: dict) -> None:
     recent = featured.get("recent", {})
     next_match = featured.get("next", {})
 
-    recent_html = render_match_block(
-        "result",
-        "가장 최근 경기 결과",
-        match_summary(completed_matches[0]) if completed_matches else recent.get("summary", "프랑스 승리"),
-        completed_matches[0].get("status", "") if completed_matches else recent.get("detail", "8강 1경기 결과"),
-    )
-    live_html = render_match_block(
-        "live",
-        "현재 하고있는 매치",
-        match_summary(live_matches[0]) if live_matches else "진행 중인 경기 없음",
-        live_matches[0].get("status", "8강전 진행 상황은 자동 갱신됩니다.") if live_matches else "8강전 진행 상황은 자동 갱신됩니다.",
-    )
-    next_html = render_match_block(
-        "",
-        "다음 예정 경기",
-        match_summary(upcoming_matches[0]) if upcoming_matches else next_match.get("summary", "스페인 vs 벨기에"),
-        upcoming_matches[0].get("status", "") if upcoming_matches else next_match.get("detail", "8강 2경기 예정"),
-    )
-
-    st.markdown(f'<div class="match-strip">{recent_html}{live_html}{next_html}</div>', unsafe_allow_html=True)
+    cols = st.columns(3)
+    with cols[0]:
+        render_match_card(
+            "result",
+            "가장 최근 경기 결과",
+            match_summary(completed_matches[0]) if completed_matches else recent.get("summary", "프랑스 2 - 0 모로코"),
+            completed_matches[0].get("status", "") if completed_matches else recent.get("detail", "득점: 음바페, 뎀벨레"),
+        )
+    with cols[1]:
+        render_match_card(
+            "live",
+            "현재 하고있는 매치",
+            match_summary(live_matches[0]) if live_matches else "진행 중인 경기 없음",
+            live_matches[0].get("status", "8강전 진행 상황은 자동 갱신됩니다.") if live_matches else "8강전 진행 상황은 자동 갱신됩니다.",
+        )
+    with cols[2]:
+        render_match_card(
+            "",
+            "다음 예정 경기",
+            match_summary(upcoming_matches[0]) if upcoming_matches else next_match.get("summary", "스페인 vs 벨기에"),
+            upcoming_matches[0].get("status", "") if upcoming_matches else next_match.get("detail", "8강 2경기 예정"),
+        )
 
 
 def cell_class(pick: str, actual: str) -> str:
@@ -381,7 +388,10 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
         f"<td>{participant.get('tiebreaker_goals', '') if round_id == 'qf' else ''}</td>"
         for participant in participants
     )
-    header_cells = "".join(f"<th>{participant['name']}</th>" for participant in participants)
+    header_cells = "".join(
+        f"<th>{participant['name']}{' 🏆' if participant['name'] in winners else ''}</th>"
+        for participant in participants
+    )
 
     html = f"""
     <table class="score-table">
@@ -407,6 +417,36 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
 
     html += "</table>"
     st.markdown(html, unsafe_allow_html=True)
+
+
+def render_bottom_stats(pool: dict) -> None:
+    st.subheader("누적 승리/적중 현황")
+    participants = pool.get("participants", [])
+    past_wins = pool.get("past_wins", {})
+    round_win_counts = {participant["name"]: int(past_wins.get(participant["name"], 0)) for participant in participants}
+
+    for round_id in ["r16", "qf", "champion"]:
+        winners, _ = round_winners(pool, round_id)
+        for winner in winners:
+            round_win_counts[winner] = round_win_counts.get(winner, 0) + 1
+
+    rows = []
+    for participant in participants:
+        rows.append(
+            {
+                "이름": participant["name"],
+                "16강 적중": participant_score(pool, participant, "r16"),
+                "8강 적중": participant_score(pool, participant, "qf"),
+                "라운드 승리": round_win_counts.get(participant["name"], 0),
+            }
+        )
+
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.bar_chart(df.set_index("이름")[["16강 적중", "8강 적중", "라운드 승리"]])
 
 
 def render_champion(pool: dict) -> None:
@@ -488,3 +528,5 @@ st.divider()
 render_prediction_table(pool, "r16")
 st.divider()
 render_champion(pool)
+st.divider()
+render_bottom_stats(pool)
