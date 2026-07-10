@@ -1,6 +1,18 @@
 {
   "title": "월드컵 예측 내기",
   "admin_password": "admin",
+  "featured": {
+    "recent": {
+      "title": "가장 최근 경기 결과",
+      "summary": "프랑스 승리",
+      "detail": "8강 1경기 결과"
+    },
+    "next": {
+      "title": "다음 예정 경기",
+      "summary": "스페인 vs 벨기에",
+      "detail": "8강 2경기 예정"
+    }
+  },
   "participants": [
     {
       "name": "고동",
@@ -68,7 +80,7 @@
   ],
   "results": {
     "r16": ["잉글랜드", "스페인", "벨기에", "콜롬비아"],
-    "qf": [],
+    "qf": ["프랑스"],
     "champion": []
   },
   "history": []

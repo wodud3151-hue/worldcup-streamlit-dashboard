@@ -11,11 +11,11 @@ DATA_PATH = Path("pool.json")
 LEGACY_DATA_PATH = Path("data/pool.json")
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
 
-ROUNDS = [
-    {"id": "r16", "label": "16강전", "games": ["1경기", "2경기", "3경기", "4경기"]},
-    {"id": "qf", "label": "8강전", "games": ["1경기", "2경기", "3경기", "4경기"]},
-    {"id": "champion", "label": "우승팀", "games": ["우승팀"]},
-]
+ROUND_DEFS = {
+    "qf": {"label": "8강전", "games": ["1경기", "2경기", "3경기", "4경기"]},
+    "r16": {"label": "16강전", "games": ["1경기", "2경기", "3경기", "4경기"]},
+    "champion": {"label": "우승팀", "games": ["우승팀"]},
+}
 
 
 st.set_page_config(
@@ -27,41 +27,98 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
-.pick-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 0.92rem;
-  margin: 2px 0;
+.block-container { padding-top: 1.5rem; }
+.match-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 18px;
 }
-.pick-hit { background: #dff6ea; color: #11683e; border: 1px solid #a9e3c4; }
-.pick-miss { background: #ffe4df; color: #9f2d20; border: 1px solid #f1afa5; }
-.pick-pending { background: #edf1f5; color: #526071; border: 1px solid #d7dee8; }
+.match-card {
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 14px;
+}
+.match-card.live { border-color: #f3c363; background: #fff8e8; }
+.match-card.result { border-color: #a9e3c4; background: #f0fbf5; }
+.match-kicker { color: #667085; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+.match-title { font-size: 18px; font-weight: 900; margin-bottom: 4px; }
+.match-note { color: #667085; font-size: 13px; }
 .winner-box {
   border: 1px solid #a9e3c4;
   background: #f0fbf5;
   color: #0b4b32;
-  border-radius: 10px;
-  padding: 14px 16px;
-  margin: 10px 0 18px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+  font-weight: 900;
+}
+.prediction-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 14px;
+  margin-bottom: 18px;
+}
+.prediction-table th,
+.prediction-table td {
+  border: 1px solid #d7dee8;
+  text-align: center;
+  vertical-align: middle;
+  padding: 7px 6px;
+  line-height: 1.25;
+  word-break: keep-all;
+}
+.prediction-table th {
+  background: #f3f6f9;
+  color: #263241;
+  font-weight: 900;
+}
+.prediction-table .game-cell {
+  background: #f8fafc;
+  font-weight: 900;
+  width: 76px;
+}
+.prediction-table .actual-cell {
+  background: #eef6ff;
+  color: #24527a;
+  font-weight: 900;
+  width: 90px;
+}
+.prediction-table .hit {
+  background: #dff6ea;
+  color: #11683e;
+  font-weight: 900;
+}
+.prediction-table .miss {
+  background: #ffe4df;
+  color: #9f2d20;
   font-weight: 800;
 }
-.match-now {
-  border: 1px solid #f3c363;
-  background: #fff8e8;
-  border-radius: 10px;
-  padding: 14px 16px;
+.prediction-table .pending {
+  background: #fff;
+  color: #263241;
 }
-.match-next {
+.score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.score-table th,
+.score-table td {
   border: 1px solid #d7dee8;
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 14px 16px;
+  text-align: center;
+  padding: 6px;
 }
-.muted-small { color: #667085; font-size: 0.88rem; }
+.score-table th { background: #f3f6f9; }
+@media (max-width: 900px) {
+  .match-strip { grid-template-columns: 1fr; }
+  .prediction-table { font-size: 12px; }
+  .prediction-table th,
+  .prediction-table td { padding: 6px 4px; }
+}
 </style>
 """
 
@@ -81,6 +138,10 @@ def default_pool() -> dict:
         "admin_password": "admin",
         "participants": [],
         "results": {"r16": [], "qf": [], "champion": []},
+        "featured": {
+            "recent": {"title": "최근 경기 결과", "summary": "결과 입력 전", "detail": ""},
+            "next": {"title": "다음 예정 경기", "summary": "스페인 vs 벨기에", "detail": ""},
+        },
         "history": [],
     }
 
@@ -95,6 +156,7 @@ def load_pool() -> dict:
         save_pool(pool)
 
     pool.setdefault("results", {"r16": [], "qf": [], "champion": []})
+    pool.setdefault("featured", default_pool()["featured"])
     pool.setdefault("history", [])
     for participant in pool.setdefault("participants", []):
         participant.setdefault("predictions", {})
@@ -121,19 +183,16 @@ def is_hit(pick: str, actual: str) -> bool:
 
 
 def participant_score(pool: dict, participant: dict, round_id: str) -> int:
-    round_def = next(item for item in ROUNDS if item["id"] == round_id)
     return sum(
         1
-        for idx, _ in enumerate(round_def["games"])
+        for idx, _ in enumerate(ROUND_DEFS[round_id]["games"])
         if is_hit(prediction_for(participant, round_id, idx), actual_for(pool, round_id, idx))
     )
 
 
 def round_winners(pool: dict, round_id: str) -> tuple[list[str], int]:
-    actual_values = [team for team in pool.get("results", {}).get(round_id, []) if team]
-    if not actual_values:
+    if not any(pool.get("results", {}).get(round_id, [])):
         return [], 0
-
     scores = [
         (participant["name"], participant_score(pool, participant, round_id))
         for participant in pool.get("participants", [])
@@ -142,11 +201,6 @@ def round_winners(pool: dict, round_id: str) -> tuple[list[str], int]:
     if top_score == 0:
         return [], 0
     return [name for name, score in scores if score == top_score], top_score
-
-
-def chip_html(text: str, status: str) -> str:
-    safe_text = text or "미입력"
-    return f'<span class="pick-chip pick-{status}">{safe_text}</span>'
 
 
 def match_round_id(event: dict) -> str | None:
@@ -160,7 +214,6 @@ def match_round_id(event: dict) -> str | None:
         ]
         if value
     ).lower()
-
     if "round of 16" in text or "16강" in text:
         return "r16"
     if "quarter" in text or "8강" in text:
@@ -194,13 +247,11 @@ def fetch_live_matches() -> tuple[list[dict], str | None]:
                     "winner": bool(competitor.get("winner")),
                 }
             )
-
         status = ((event.get("status") or {}).get("type") or {})
-        date_value = event.get("date")
         matches.append(
             {
                 "name": event.get("shortName") or event.get("name") or "경기",
-                "date": date_value,
+                "date": event.get("date"),
                 "status": status.get("description") or "상태 미정",
                 "status_name": status.get("name") or "",
                 "completed": bool(status.get("completed")),
@@ -222,9 +273,7 @@ def parse_dt(value: str | None):
 
 def is_live_match(match: dict) -> bool:
     status_name = str(match.get("status_name", "")).upper()
-    if match.get("completed"):
-        return False
-    return any(key in status_name for key in ["IN_PROGRESS", "HALFTIME", "LIVE"])
+    return not match.get("completed") and any(key in status_name for key in ["IN_PROGRESS", "HALFTIME", "LIVE"])
 
 
 def is_upcoming_match(match: dict) -> bool:
@@ -233,109 +282,136 @@ def is_upcoming_match(match: dict) -> bool:
     match_dt = parse_dt(match.get("date"))
     if match_dt is None:
         return True
-    now = datetime.now(timezone.utc)
     if match_dt.tzinfo is None:
         match_dt = match_dt.replace(tzinfo=timezone.utc)
-    return match_dt >= now
+    return match_dt >= datetime.now(timezone.utc)
 
 
-def render_match_card(match: dict, css_class: str) -> None:
-    st.markdown(f'<div class="{css_class}">', unsafe_allow_html=True)
-    st.caption(match.get("status", "상태 미정"))
-    st.write(f"**{match.get('name', '경기')}**")
-    for team in match.get("teams", []):
-        mark = "✅ " if team.get("winner") else ""
-        st.write(f"{mark}{team['name']}  **{team['score']}**")
-    match_dt = parse_dt(match.get("date"))
-    if match_dt:
-        st.caption(match_dt.strftime("%Y-%m-%d %H:%M"))
-    st.markdown("</div>", unsafe_allow_html=True)
+def sort_key(match: dict):
+    return parse_dt(match.get("date")) or datetime.max.replace(tzinfo=timezone.utc)
 
 
-def render_live_overview() -> None:
-    st.subheader("현재 하고있는 매치")
+def match_summary(match: dict) -> str:
+    teams = match.get("teams", [])
+    if len(teams) >= 2:
+        return f"{teams[0]['name']} {teams[0]['score']} - {teams[1]['score']} {teams[1]['name']}"
+    return match.get("name", "경기")
+
+
+def render_match_block(kind: str, title: str, summary: str, detail: str = "") -> str:
+    css_kind = "live" if kind == "live" else "result" if kind == "result" else ""
+    return f"""
+    <div class="match-card {css_kind}">
+      <div class="match-kicker">{title}</div>
+      <div class="match-title">{summary}</div>
+      <div class="match-note">{detail}</div>
+    </div>
+    """
+
+
+def render_match_overview(pool: dict) -> None:
     matches, error = fetch_live_matches()
-    if error:
-        st.warning(f"실시간 경기 데이터를 불러오지 못했습니다. 수동 결과 입력을 사용하세요. ({error})")
-        return
+    live_matches = []
+    completed_matches = []
+    upcoming_matches = []
 
-    live_matches = [match for match in matches if is_live_match(match)]
-    upcoming_matches = sorted(
-        [match for match in matches if is_upcoming_match(match)],
-        key=lambda item: parse_dt(item.get("date")) or datetime.max,
+    if not error:
+        live_matches = [match for match in matches if is_live_match(match)]
+        completed_matches = sorted(
+            [match for match in matches if match.get("completed")],
+            key=sort_key,
+            reverse=True,
+        )
+        upcoming_matches = sorted(
+            [match for match in matches if is_upcoming_match(match)],
+            key=sort_key,
+        )
+
+    featured = pool.get("featured", {})
+    recent = featured.get("recent", {})
+    next_match = featured.get("next", {})
+
+    recent_html = render_match_block(
+        "result",
+        "가장 최근 경기 결과",
+        match_summary(completed_matches[0]) if completed_matches else recent.get("summary", "프랑스 승리"),
+        completed_matches[0].get("status", "") if completed_matches else recent.get("detail", "8강 1경기 결과"),
     )
-    completed_matches = [match for match in matches if match.get("completed")]
+    live_html = render_match_block(
+        "live",
+        "현재 하고있는 매치",
+        match_summary(live_matches[0]) if live_matches else "진행 중인 경기 없음",
+        live_matches[0].get("status", "8강전 진행 상황은 자동 갱신됩니다.") if live_matches else "8강전 진행 상황은 자동 갱신됩니다.",
+    )
+    next_html = render_match_block(
+        "",
+        "다음 예정 경기",
+        match_summary(upcoming_matches[0]) if upcoming_matches else next_match.get("summary", "스페인 vs 벨기에"),
+        upcoming_matches[0].get("status", "") if upcoming_matches else next_match.get("detail", "8강 2경기 예정"),
+    )
 
-    if live_matches:
-        cols = st.columns(min(2, len(live_matches)))
-        for idx, match in enumerate(live_matches):
-            with cols[idx % len(cols)]:
-                render_match_card(match, "match-now")
-    else:
-        st.info("지금 진행 중인 월드컵 경기는 없습니다.")
-
-    st.subheader("다음 경기")
-    if upcoming_matches:
-        cols = st.columns(min(3, len(upcoming_matches[:6])))
-        for idx, match in enumerate(upcoming_matches[:6]):
-            with cols[idx % len(cols)]:
-                render_match_card(match, "match-next")
-    else:
-        st.caption("표시할 예정 경기가 없습니다.")
-
-    with st.expander("완료된 경기 결과", expanded=False):
-        if not completed_matches:
-            st.caption("표시할 완료 경기가 없습니다.")
-        for match in completed_matches[:10]:
-            render_match_card(match, "match-next")
+    st.markdown(f'<div class="match-strip">{recent_html}{live_html}{next_html}</div>', unsafe_allow_html=True)
 
 
-def render_round_section(pool: dict, round_id: str) -> None:
-    round_def = next(item for item in ROUNDS if item["id"] == round_id)
-    st.subheader(round_def["label"])
+def cell_class(pick: str, actual: str) -> str:
+    if not actual:
+        return "pending"
+    return "hit" if is_hit(pick, actual) else "miss"
 
+
+def render_prediction_table(pool: dict, round_id: str) -> None:
+    round_def = ROUND_DEFS[round_id]
+    participants = pool.get("participants", [])
     winners, top_score = round_winners(pool, round_id)
+
+    st.subheader(round_def["label"])
     if winners:
         st.markdown(
             f'<div class="winner-box">{round_def["label"]} 승자: {", ".join(winners)} · {top_score}개 적중</div>',
             unsafe_allow_html=True,
         )
     else:
-        st.caption("실제 결과가 입력되면 라운드 승자가 자동으로 표시됩니다.")
+        st.caption("결과가 입력되면 맞춘 선택이 색칠되고 승자가 표시됩니다.")
 
-    score_rows = []
-    for participant in pool.get("participants", []):
-        score_rows.append(
-            {
-                "이름": participant["name"],
-                "적중 수": participant_score(pool, participant, round_id),
-                "총 골수": participant.get("tiebreaker_goals", "") if round_id == "qf" else "",
-            }
-        )
-    if score_rows:
-        st.dataframe(pd.DataFrame(score_rows), use_container_width=True, hide_index=True)
+    score_cells = "".join(
+        f"<td><b>{participant_score(pool, participant, round_id)}</b></td>"
+        for participant in participants
+    )
+    goal_cells = "".join(
+        f"<td>{participant.get('tiebreaker_goals', '') if round_id == 'qf' else ''}</td>"
+        for participant in participants
+    )
+    header_cells = "".join(f"<th>{participant['name']}</th>" for participant in participants)
 
-    game_cols = st.columns(2)
+    html = f"""
+    <table class="score-table">
+      <tr><th>구분</th>{header_cells}</tr>
+      <tr><td>적중 수</td>{score_cells}</tr>
+      {"<tr><td>총 골수</td>" + goal_cells + "</tr>" if round_id == "qf" else ""}
+    </table>
+    <table class="prediction-table">
+      <tr>
+        <th class="game-cell">경기</th>
+        <th class="actual-cell">결과</th>
+        {header_cells}
+      </tr>
+    """
+
     for game_index, game_label in enumerate(round_def["games"]):
         actual = actual_for(pool, round_id, game_index)
-        with game_cols[game_index % 2]:
-            with st.container(border=True):
-                st.markdown(f"### {game_label}")
-                st.caption(f"실제 결과: {actual or '미입력'}")
-                for participant in pool.get("participants", []):
-                    pick = prediction_for(participant, round_id, game_index)
-                    if actual:
-                        status = "hit" if is_hit(pick, actual) else "miss"
-                    else:
-                        status = "pending"
-                    st.markdown(
-                        f"**{participant['name']}** &nbsp; {chip_html(pick, status)}",
-                        unsafe_allow_html=True,
-                    )
+        html += f'<tr><td class="game-cell">{game_label}</td><td class="actual-cell">{actual or "진행/대기"}</td>'
+        for participant in participants:
+            pick = prediction_for(participant, round_id, game_index)
+            html += f'<td class="{cell_class(pick, actual)}">{pick or "미입력"}</td>'
+        html += "</tr>"
+
+    html += "</table>"
+    st.markdown(html, unsafe_allow_html=True)
 
 
-def render_champion_section(pool: dict) -> None:
+def render_champion(pool: dict) -> None:
     st.subheader("우승팀 예측")
+    participants = pool.get("participants", [])
     actual = actual_for(pool, "champion", 0)
     winners, top_score = round_winners(pool, "champion")
     if winners:
@@ -344,14 +420,18 @@ def render_champion_section(pool: dict) -> None:
             unsafe_allow_html=True,
         )
 
-    cols = st.columns(3)
-    for idx, participant in enumerate(pool.get("participants", [])):
-        with cols[idx % 3]:
-            pick = prediction_for(participant, "champion", 0)
-            status = "hit" if actual and is_hit(pick, actual) else "miss" if actual else "pending"
-            with st.container(border=True):
-                st.write(f"**{participant['name']}**")
-                st.markdown(chip_html(pick, status), unsafe_allow_html=True)
+    header_cells = "".join(f"<th>{participant['name']}</th>" for participant in participants)
+    pick_cells = ""
+    for participant in participants:
+        pick = prediction_for(participant, "champion", 0)
+        pick_cells += f'<td class="{cell_class(pick, actual)}">{pick or "미입력"}</td>'
+    html = f"""
+    <table class="prediction-table">
+      <tr><th class="actual-cell">결과</th>{header_cells}</tr>
+      <tr><td class="actual-cell">{actual or "대기"}</td>{pick_cells}</tr>
+    </table>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_admin(pool: dict) -> bool:
@@ -363,51 +443,31 @@ def render_admin(pool: dict) -> bool:
         return False
 
     st.sidebar.success("관리자 모드")
-
     with st.sidebar.expander("실제 결과 수정", expanded=True):
-        for round_def in ROUNDS:
-            current = ", ".join(pool.get("results", {}).get(round_def["id"], []))
+        for round_id in ["qf", "r16", "champion"]:
+            current = ", ".join(pool.get("results", {}).get(round_id, []))
             value = st.text_area(
-                f"{round_def['label']} 결과",
+                f"{ROUND_DEFS[round_id]['label']} 결과",
                 value=current,
                 help="1경기, 2경기, 3경기, 4경기 순서대로 쉼표로 입력",
-                key=f"result-{round_def['id']}",
+                key=f"result-{round_id}",
             )
-            pool.setdefault("results", {})[round_def["id"]] = split_teams(value)
+            pool.setdefault("results", {})[round_id] = split_teams(value)
 
         if st.button("실제 결과 저장", use_container_width=True):
             save_pool(pool)
             st.success("저장했습니다.")
             st.rerun()
 
-    with st.sidebar.expander("참가자/예측 수정", expanded=False):
-        names = "\n".join(item["name"] for item in pool.get("participants", []))
-        next_names = st.text_area("참가자 이름", names, height=120)
-        existing = {item["name"]: item for item in pool.get("participants", [])}
-        pool["participants"] = [
-            existing.get(name, {"name": name, "predictions": {}, "tiebreaker_goals": ""})
-            for name in [line.strip() for line in next_names.splitlines() if line.strip()]
-        ]
-
-        for participant in pool["participants"]:
-            st.markdown(f"**{participant['name']}**")
-            participant["tiebreaker_goals"] = st.number_input(
-                f"{participant['name']} 총 골수",
-                min_value=0,
-                max_value=99,
-                value=int(participant.get("tiebreaker_goals") or 0),
-                key=f"goals-{participant['name']}",
-            )
-            for round_def in ROUNDS:
-                current = ", ".join(participant.get("predictions", {}).get(round_def["id"], []))
-                value = st.text_input(
-                    f"{participant['name']} · {round_def['label']}",
-                    value=current,
-                    key=f"pred-{participant['name']}-{round_def['id']}",
-                )
-                participant.setdefault("predictions", {})[round_def["id"]] = split_teams(value)
-
-        if st.button("참가자/예측 저장", use_container_width=True):
+    with st.sidebar.expander("상단 경기 카드 수정", expanded=False):
+        pool.setdefault("featured", default_pool()["featured"])
+        recent = pool["featured"].setdefault("recent", {})
+        next_match = pool["featured"].setdefault("next", {})
+        recent["summary"] = st.text_input("최근 경기 결과", recent.get("summary", "프랑스 승리"))
+        recent["detail"] = st.text_input("최근 경기 설명", recent.get("detail", "8강 1경기 결과"))
+        next_match["summary"] = st.text_input("다음 예정 경기", next_match.get("summary", "스페인 vs 벨기에"))
+        next_match["detail"] = st.text_input("다음 경기 설명", next_match.get("detail", "8강 2경기 예정"))
+        if st.button("상단 카드 저장", use_container_width=True):
             save_pool(pool)
             st.success("저장했습니다.")
             st.rerun()
@@ -417,15 +477,14 @@ def render_admin(pool: dict) -> bool:
 
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 pool = load_pool()
-is_admin = render_admin(pool)
+render_admin(pool)
 
 st.title(pool.get("title", "월드컵 예측 대시보드"))
-st.caption("라운드별 경기 선택, 적중 현황, 실시간 경기 진행을 한 화면에서 보는 대시보드")
+st.caption("8강 진행 상황을 최상단에 두고, 라운드별 선택과 적중 여부를 표로 확인합니다.")
 
-render_live_overview()
+render_match_overview(pool)
+render_prediction_table(pool, "qf")
 st.divider()
-render_round_section(pool, "r16")
+render_prediction_table(pool, "r16")
 st.divider()
-render_round_section(pool, "qf")
-st.divider()
-render_champion_section(pool)
+render_champion(pool)
