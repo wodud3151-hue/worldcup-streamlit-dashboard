@@ -5,11 +5,31 @@ from pathlib import Path
 import pandas as pd
 import requests
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 
 DATA_PATH = Path("pool.json")
 LEGACY_DATA_PATH = Path("data/pool.json")
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
+AUTO_REFRESH_MS = 60_000
+
+TEAM_NAME_MAP = {
+    "Argentina": "아르헨티나",
+    "Belgium": "벨기에",
+    "Brazil": "브라질",
+    "Colombia": "콜롬비아",
+    "England": "잉글랜드",
+    "France": "프랑스",
+    "Germany": "독일",
+    "Mexico": "멕시코",
+    "Morocco": "모로코",
+    "Norway": "노르웨이",
+    "Portugal": "포르투갈",
+    "Spain": "스페인",
+    "Switzerland": "스위스",
+    "United States": "미국",
+    "USA": "미국",
+}
 
 ROUND_DEFS = {
     "qf": {"label": "8강전", "games": ["1경기", "2경기", "3경기", "4경기"]},
@@ -131,6 +151,10 @@ CUSTOM_CSS = """
 
 def normalize_team(team: str) -> str:
     return str(team).strip().lower()
+
+
+def display_team(team: str) -> str:
+    return TEAM_NAME_MAP.get(team, team)
 
 
 def split_teams(text: str) -> list[str]:
@@ -301,6 +325,65 @@ def fetch_live_matches() -> tuple[list[dict], str | None]:
             }
         )
     return matches, None
+
+
+def translated_team_names(match: dict) -> list[str]:
+    return [display_team(team.get("name", "")) for team in match.get("teams", [])]
+
+
+def match_winner(match: dict) -> str:
+    for team in match.get("teams", []):
+        if team.get("winner"):
+            return display_team(team.get("name", ""))
+    return ""
+
+
+def match_total_goals(match: dict) -> int:
+    total = 0
+    for team in match.get("teams", []):
+        try:
+            total += int(team.get("score") or 0)
+        except ValueError:
+            pass
+    return total
+
+
+def auto_apply_live_results(pool: dict, matches: list[dict]) -> dict:
+    """Reflect completed quarterfinal results in the displayed table.
+
+    The app keeps pool.json as the source of manual data, but on each refresh it
+    overlays confirmed live results so viewers see the current state without
+    waiting for a manual edit.
+    """
+    qf_fixtures = pool.get("fixtures", {}).get("qf", [])
+    qf_results = list(pool.get("results", {}).get("qf", []))
+    qf_completed_goal_totals = []
+
+    for match in matches:
+        if match.get("round_id") != "qf":
+            continue
+
+        teams = {normalize_team(team) for team in translated_team_names(match)}
+        for idx, fixture in enumerate(qf_fixtures):
+            fixture_teams = {normalize_team(team) for team in fixture}
+            if not fixture_teams or not fixture_teams.issubset(teams):
+                continue
+
+            if match.get("completed"):
+                winner = match_winner(match)
+                if winner:
+                    while len(qf_results) <= idx:
+                        qf_results.append("")
+                    qf_results[idx] = winner
+                qf_completed_goal_totals.append(match_total_goals(match))
+
+    if qf_results:
+        pool.setdefault("results", {})["qf"] = qf_results
+
+    if len(qf_completed_goal_totals) == len(qf_fixtures) and qf_fixtures:
+        pool.setdefault("result_total_goals", {})["qf"] = sum(qf_completed_goal_totals)
+
+    return pool
 
 
 def parse_dt(value: str | None):
@@ -561,8 +644,13 @@ def render_admin(pool: dict) -> bool:
     return True
 
 
+st_autorefresh(interval=AUTO_REFRESH_MS, key="live_refresh")
+
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 pool = load_pool()
+live_matches_for_overlay, live_error_for_overlay = fetch_live_matches()
+if not live_error_for_overlay:
+    pool = auto_apply_live_results(pool, live_matches_for_overlay)
 render_admin(pool)
 
 st.title(pool.get("title", "월드컵 예측 대시보드"))
