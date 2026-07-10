@@ -191,8 +191,20 @@ def participant_score(pool: dict, participant: dict, round_id: str) -> int:
     )
 
 
+def is_round_complete(pool: dict, round_id: str) -> bool:
+    actual = [team for team in pool.get("results", {}).get(round_id, []) if team]
+    if round_id in ["r16", "qf"]:
+        if len(actual) < len(ROUND_DEFS[round_id]["games"]):
+            return False
+        if round_id == "qf":
+            total_goals = pool.get("result_total_goals", {}).get("qf")
+            return total_goals not in [None, ""]
+        return True
+    return bool(actual)
+
+
 def round_winners(pool: dict, round_id: str) -> tuple[list[str], int]:
-    if not any(pool.get("results", {}).get(round_id, [])):
+    if not is_round_complete(pool, round_id):
         return [], 0
     scores = [
         (participant["name"], participant_score(pool, participant, round_id))
@@ -401,7 +413,10 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
             unsafe_allow_html=True,
         )
     else:
-        st.caption("결과가 입력되면 맞춘 선택이 색칠되고 승자가 표시됩니다.")
+        if round_id == "qf":
+            st.caption("8강 4경기 결과와 총 골수 결과가 모두 입력되면 승자가 표시됩니다.")
+        else:
+            st.caption("라운드 결과가 모두 입력되면 승자가 표시됩니다.")
 
     score_cells = "".join(
         f"<td><b>{participant_score(pool, participant, round_id)}</b></td>"
@@ -452,6 +467,8 @@ def render_bottom_stats(pool: dict) -> None:
     round_win_counts = {participant["name"]: int(past_wins.get(participant["name"], 0)) for participant in participants}
 
     for round_id in ["r16", "qf", "champion"]:
+        if not is_round_complete(pool, round_id):
+            continue
         winners, _ = round_winners(pool, round_id)
         for winner in winners:
             round_win_counts[winner] = round_win_counts.get(winner, 0) + 1
