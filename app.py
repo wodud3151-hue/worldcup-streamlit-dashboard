@@ -237,7 +237,7 @@ def render_dashboard(pool: dict) -> None:
     st.subheader("참가자별 예측/적중 현황")
     rows = []
     for participant in pool["participants"]:
-        row = {"참가자": participant["name"]}
+        row = {"참가자": participant["name"], "총 골수": participant.get("tiebreaker_goals", "")}
         for item in ROUNDS:
             predictions = participant.get("predictions", {}).get(item["id"], [])
             actual = pool["results"].get(item["id"], [])
@@ -290,6 +290,13 @@ def render_admin(pool: dict) -> None:
 
         for participant in pool["participants"]:
             st.markdown(f"**{participant['name']}**")
+            participant["tiebreaker_goals"] = st.number_input(
+                f"{participant['name']} · 8강전 총 골수",
+                min_value=0,
+                max_value=99,
+                value=int(participant.get("tiebreaker_goals") or 0),
+                key=f"goals-{participant['name']}",
+            )
             for item in ROUNDS:
                 current = ", ".join(participant.get("predictions", {}).get(item["id"], []))
                 value = st.text_input(
