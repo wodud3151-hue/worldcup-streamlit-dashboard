@@ -4,13 +4,13 @@
   "featured": {
     "recent": {
       "title": "가장 최근 경기 결과",
-      "summary": "프랑스 2 - 0 모로코",
-      "detail": "득점: 음바페, 뎀벨레"
+      "summary": "잉글랜드 2 - 1 노르웨이",
+      "detail": "득점: 벨링엄 2, 셸데루프"
     },
     "next": {
       "title": "다음 예정 경기",
-      "summary": "스페인 vs 벨기에",
-      "detail": "7월 11일 04:00 KST 예정"
+      "summary": "아르헨티나 vs 스위스",
+      "detail": "8강 4경기 예정"
     }
   },
   "past_wins": {
@@ -92,7 +92,7 @@
   ],
   "results": {
     "r16": ["잉글랜드", "스페인", "벨기에", "스위스"],
-    "qf": ["프랑스"],
+    "qf": ["프랑스", "스페인", "잉글랜드"],
     "champion": []
   },
   "result_total_goals": {
@@ -100,10 +100,10 @@
   },
   "qf_game_goals": [
     2,
-    "",
-    "",
+    3,
+    3,
     ""
   ],
-  "qf_current_total_goals": 2,
+  "qf_current_total_goals": 8,
   "history": []
 }

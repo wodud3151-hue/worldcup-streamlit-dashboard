@@ -304,6 +304,48 @@ def match_round_id(event: dict) -> str | None:
     return None
 
 
+def collect_scorers(event: dict) -> list[str]:
+    scorers = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            text_fields = []
+            for key in ["type", "displayName", "text", "headline", "description"]:
+                if value.get(key):
+                    text_fields.append(str(value[key]).lower())
+
+            looks_like_goal = any("goal" in text or "득점" in text for text in text_fields)
+            athlete = value.get("athlete") or value.get("player")
+            if looks_like_goal and isinstance(athlete, dict):
+                name = athlete.get("displayName") or athlete.get("shortName") or athlete.get("name")
+                if name:
+                    scorers.append(str(name))
+
+            if looks_like_goal:
+                for key in ["participants", "athletes", "players"]:
+                    for item in value.get(key, []) or []:
+                        if isinstance(item, dict):
+                            name = item.get("displayName") or item.get("shortName") or item.get("name")
+                            if name:
+                                scorers.append(str(name))
+
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(event.get("competitions") or [])
+    deduped = []
+    seen = set()
+    for scorer in scorers:
+        key = scorer.lower()
+        if key not in seen:
+            deduped.append(scorer)
+            seen.add(key)
+    return deduped
+
+
 @st.cache_data(ttl=60)
 def fetch_live_matches() -> tuple[list[dict], str | None]:
     try:
@@ -336,6 +378,7 @@ def fetch_live_matches() -> tuple[list[dict], str | None]:
                 "completed": bool(status.get("completed")),
                 "round_id": match_round_id(event),
                 "teams": teams,
+                "scorers": collect_scorers(event),
             }
         )
     return matches, None
@@ -466,6 +509,15 @@ def match_summary(match: dict) -> str:
     return match.get("name", "경기")
 
 
+def match_detail(match: dict | None, fallback: str = "") -> str:
+    if not match:
+        return fallback
+    scorers = match.get("scorers") or []
+    if scorers:
+        return "득점: " + ", ".join(scorers)
+    return match.get("status", "") or "득점자 정보 확인 중"
+
+
 def latest_completed_fixture_match(pool: dict, matches: list[dict]) -> dict | None:
     completed = [match for match in matches if match.get("completed") and fixture_match_index(pool, match) is not None]
     if not completed:
@@ -530,7 +582,7 @@ def render_match_overview(pool: dict) -> None:
             "result",
             "가장 최근 경기 결과",
             match_summary(latest_match) if latest_match else recent.get("summary", "프랑스 2 - 0 모로코"),
-            recent.get("detail", "득점: 음바페, 뎀벨레"),
+            match_detail(latest_match, recent.get("detail", "득점자 정보 확인 중")),
         )
     with cols[1]:
         render_match_card(
