@@ -398,7 +398,7 @@ def auto_apply_live_results(pool: dict, matches: list[dict]) -> dict:
     """
     qf_fixtures = pool.get("fixtures", {}).get("qf", [])
     qf_results = list(pool.get("results", {}).get("qf", []))
-    qf_completed_goal_totals = []
+    qf_game_goals = list(pool.get("qf_game_goals", []))
 
     for match in matches:
         idx = fixture_match_index(pool, match)
@@ -406,18 +406,26 @@ def auto_apply_live_results(pool: dict, matches: list[dict]) -> dict:
             continue
 
         if match.get("completed"):
+            while len(qf_game_goals) <= idx:
+                qf_game_goals.append("")
+            qf_game_goals[idx] = match_total_goals(match)
+
             winner = match_winner(match)
             if winner:
                 while len(qf_results) <= idx:
                     qf_results.append("")
                 qf_results[idx] = winner
-            qf_completed_goal_totals.append(match_total_goals(match))
 
     if qf_results:
         pool.setdefault("results", {})["qf"] = qf_results
 
-    if len(qf_completed_goal_totals) == len(qf_fixtures) and qf_fixtures:
-        pool.setdefault("result_total_goals", {})["qf"] = sum(qf_completed_goal_totals)
+    if qf_game_goals:
+        pool["qf_game_goals"] = qf_game_goals
+        completed_goal_values = [int(value) for value in qf_game_goals if value not in [None, ""]]
+        pool["qf_current_total_goals"] = sum(completed_goal_values)
+
+        if len(completed_goal_values) == len(qf_fixtures) and qf_fixtures:
+            pool.setdefault("result_total_goals", {})["qf"] = sum(completed_goal_values)
 
     return pool
 
@@ -566,6 +574,14 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
     )
     qf_total_goals = pool.get("result_total_goals", {}).get("qf")
     qf_total_goals_display = qf_total_goals if qf_total_goals not in [None, ""] else "대기"
+    qf_game_goals = pool.get("qf_game_goals", [])
+    qf_game_goals_display = " / ".join(
+        str(qf_game_goals[idx]) if idx < len(qf_game_goals) and qf_game_goals[idx] not in [None, ""] else "-"
+        for idx, _ in enumerate(round_def["games"])
+    )
+    qf_current_total_goals = pool.get("qf_current_total_goals")
+    if qf_current_total_goals in [None, ""]:
+        qf_current_total_goals = sum(int(value) for value in qf_game_goals if value not in [None, ""])
     header_cells = "".join(
         f"<th>{participant['name']}{' 🏆' if participant['name'] in winners else ''}</th>"
         for participant in participants
@@ -576,6 +592,8 @@ def render_prediction_table(pool: dict, round_id: str) -> None:
       <tr><th>구분</th>{header_cells}</tr>
       <tr><td>적중 수</td>{score_cells}</tr>
       {"<tr><td>총 골수</td>" + goal_cells + "</tr>" if round_id == "qf" else ""}
+      {"<tr><td>경기별 골수</td><td colspan='" + str(len(participants)) + "'><b>" + qf_game_goals_display + "</b></td></tr>" if round_id == "qf" else ""}
+      {"<tr><td>현재 합산 골수</td><td colspan='" + str(len(participants)) + "'><b>" + str(qf_current_total_goals) + "</b></td></tr>" if round_id == "qf" else ""}
       {"<tr><td>총 골수 결과</td><td colspan='" + str(len(participants)) + "'><b>" + str(qf_total_goals_display) + "</b></td></tr>" if round_id == "qf" else ""}
     </table>
     <table class="prediction-table">

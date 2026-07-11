@@ -98,5 +98,12 @@
   "result_total_goals": {
     "qf": ""
   },
+  "qf_game_goals": [
+    2,
+    "",
+    "",
+    ""
+  ],
+  "qf_current_total_goals": 2,
   "history": []
 }
