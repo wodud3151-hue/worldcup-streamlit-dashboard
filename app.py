@@ -15,18 +15,31 @@ AUTO_REFRESH_MS = 60_000
 
 TEAM_NAME_MAP = {
     "Argentina": "아르헨티나",
+    "ARG": "아르헨티나",
     "Belgium": "벨기에",
+    "BEL": "벨기에",
     "Brazil": "브라질",
+    "BRA": "브라질",
     "Colombia": "콜롬비아",
+    "COL": "콜롬비아",
     "England": "잉글랜드",
+    "ENG": "잉글랜드",
     "France": "프랑스",
+    "FRA": "프랑스",
     "Germany": "독일",
+    "GER": "독일",
     "Mexico": "멕시코",
+    "MEX": "멕시코",
     "Morocco": "모로코",
+    "MAR": "모로코",
     "Norway": "노르웨이",
+    "NOR": "노르웨이",
     "Portugal": "포르투갈",
+    "POR": "포르투갈",
     "Spain": "스페인",
+    "ESP": "스페인",
     "Switzerland": "스위스",
+    "SUI": "스위스",
     "United States": "미국",
     "USA": "미국",
 }
@@ -154,7 +167,8 @@ def normalize_team(team: str) -> str:
 
 
 def display_team(team: str) -> str:
-    return TEAM_NAME_MAP.get(team, team)
+    text = str(team).strip()
+    return TEAM_NAME_MAP.get(text) or TEAM_NAME_MAP.get(text.upper()) or TEAM_NAME_MAP.get(text.title()) or text
 
 
 def split_teams(text: str) -> list[str]:
@@ -331,10 +345,37 @@ def translated_team_names(match: dict) -> list[str]:
     return [display_team(team.get("name", "")) for team in match.get("teams", [])]
 
 
+def fixture_match_index(pool: dict, match: dict) -> int | None:
+    match_teams = {normalize_team(team) for team in translated_team_names(match)}
+    for idx, fixture in enumerate(pool.get("fixtures", {}).get("qf", [])):
+        fixture_teams = {normalize_team(team) for team in fixture}
+        if fixture_teams and fixture_teams.issubset(match_teams):
+            return idx
+    return None
+
+
+def fixture_summary(pool: dict, idx: int) -> str:
+    fixtures = pool.get("fixtures", {}).get("qf", [])
+    if idx >= len(fixtures) or len(fixtures[idx]) < 2:
+        return "다음 경기 대기"
+    return f"{fixtures[idx][0]} vs {fixtures[idx][1]}"
+
+
 def match_winner(match: dict) -> str:
     for team in match.get("teams", []):
         if team.get("winner"):
             return display_team(team.get("name", ""))
+    teams = match.get("teams", [])
+    if len(teams) >= 2:
+        try:
+            first_score = int(teams[0].get("score") or 0)
+            second_score = int(teams[1].get("score") or 0)
+        except ValueError:
+            return ""
+        if first_score > second_score:
+            return display_team(teams[0].get("name", ""))
+        if second_score > first_score:
+            return display_team(teams[1].get("name", ""))
     return ""
 
 
@@ -360,22 +401,17 @@ def auto_apply_live_results(pool: dict, matches: list[dict]) -> dict:
     qf_completed_goal_totals = []
 
     for match in matches:
-        if match.get("round_id") != "qf":
+        idx = fixture_match_index(pool, match)
+        if idx is None:
             continue
 
-        teams = {normalize_team(team) for team in translated_team_names(match)}
-        for idx, fixture in enumerate(qf_fixtures):
-            fixture_teams = {normalize_team(team) for team in fixture}
-            if not fixture_teams or not fixture_teams.issubset(teams):
-                continue
-
-            if match.get("completed"):
-                winner = match_winner(match)
-                if winner:
-                    while len(qf_results) <= idx:
-                        qf_results.append("")
-                    qf_results[idx] = winner
-                qf_completed_goal_totals.append(match_total_goals(match))
+        if match.get("completed"):
+            winner = match_winner(match)
+            if winner:
+                while len(qf_results) <= idx:
+                    qf_results.append("")
+                qf_results[idx] = winner
+            qf_completed_goal_totals.append(match_total_goals(match))
 
     if qf_results:
         pool.setdefault("results", {})["qf"] = qf_results
@@ -418,8 +454,39 @@ def sort_key(match: dict):
 def match_summary(match: dict) -> str:
     teams = match.get("teams", [])
     if len(teams) >= 2:
-        return f"{teams[0]['name']} {teams[0]['score']} - {teams[1]['score']} {teams[1]['name']}"
+        return f"{display_team(teams[0]['name'])} {teams[0]['score']} - {teams[1]['score']} {display_team(teams[1]['name'])}"
     return match.get("name", "경기")
+
+
+def latest_completed_fixture_match(pool: dict, matches: list[dict]) -> dict | None:
+    completed = [match for match in matches if match.get("completed") and fixture_match_index(pool, match) is not None]
+    if not completed:
+        return None
+    return sorted(completed, key=sort_key, reverse=True)[0]
+
+
+def next_fixture_match(pool: dict, matches: list[dict]) -> tuple[str, str]:
+    results = pool.get("results", {}).get("qf", [])
+    for idx, _fixture in enumerate(pool.get("fixtures", {}).get("qf", [])):
+        if idx < len(results) and results[idx]:
+            continue
+
+        matched = [
+            match for match in matches
+            if fixture_match_index(pool, match) == idx and not match.get("completed")
+        ]
+        if matched:
+            match = sorted(matched, key=sort_key)[0]
+            match_dt = parse_dt(match.get("date"))
+            detail = match.get("status", "")
+            if match_dt:
+                detail = f"{match_dt.strftime('%m월 %d일 %H:%M')} 예정"
+            return fixture_summary(pool, idx), detail
+
+        featured_next = pool.get("featured", {}).get("next", {})
+        return fixture_summary(pool, idx), featured_next.get("detail", "")
+
+    return "8강전 완료", "모든 8강 경기가 종료되었습니다."
 
 
 def render_match_block(kind: str, title: str, summary: str, detail: str = "") -> str:
@@ -440,37 +507,29 @@ def render_match_card(kind: str, title: str, summary: str, detail: str = "") -> 
 def render_match_overview(pool: dict) -> None:
     matches, error = fetch_live_matches()
     completed_matches = []
-    upcoming_matches = []
 
     if not error:
-        completed_matches = sorted(
-            [match for match in matches if match.get("completed")],
-            key=sort_key,
-            reverse=True,
-        )
-        upcoming_matches = sorted(
-            [match for match in matches if is_upcoming_match(match)],
-            key=sort_key,
-        )
+        completed_matches = [match for match in matches if match.get("completed")]
 
     featured = pool.get("featured", {})
     recent = featured.get("recent", {})
-    next_match = featured.get("next", {})
+    latest_match = latest_completed_fixture_match(pool, completed_matches)
+    next_summary, next_detail = next_fixture_match(pool, matches if not error else [])
 
     cols = st.columns(2)
     with cols[0]:
         render_match_card(
             "result",
             "가장 최근 경기 결과",
-            match_summary(completed_matches[0]) if completed_matches else recent.get("summary", "프랑스 2 - 0 모로코"),
-            completed_matches[0].get("status", "") if completed_matches else recent.get("detail", "득점: 음바페, 뎀벨레"),
+            match_summary(latest_match) if latest_match else recent.get("summary", "프랑스 2 - 0 모로코"),
+            recent.get("detail", "득점: 음바페, 뎀벨레"),
         )
     with cols[1]:
         render_match_card(
             "",
             "다음 예정 경기",
-            match_summary(upcoming_matches[0]) if upcoming_matches else next_match.get("summary", "스페인 vs 벨기에"),
-            upcoming_matches[0].get("status", "") if upcoming_matches else next_match.get("detail", "8강 2경기 예정"),
+            next_summary,
+            next_detail,
         )
 
 
